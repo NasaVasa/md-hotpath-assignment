@@ -1,8 +1,14 @@
-use std::{collections::HashMap, sync::Arc, time::{SystemTime, UNIX_EPOCH}};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use tokio::sync::{mpsc, Mutex};
 
-use crate::{MdError, MdEvent, Quote, QuoteUpdate, ServiceStats, Symbol, SymbolHealth, SymbolStatus};
+use crate::{
+    MdError, MdEvent, Quote, QuoteUpdate, ServiceStats, Symbol, SymbolHealth, SymbolStatus,
+};
 
 /// Market-data service baseline.
 ///

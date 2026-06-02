@@ -3,5 +3,7 @@
 mod model;
 mod service;
 
-pub use model::{MdError, MdEvent, Quote, QuoteUpdate, ServiceStats, Symbol, SymbolHealth, SymbolStatus};
+pub use model::{
+    MdError, MdEvent, Quote, QuoteUpdate, ServiceStats, Symbol, SymbolHealth, SymbolStatus,
+};
 pub use service::MarketDataService;

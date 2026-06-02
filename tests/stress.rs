@@ -38,9 +38,9 @@ async fn burst_profile_smoke() {
     let start = Instant::now();
 
     // Prime every symbol so the final snapshot-size assertion is deterministic.
-    for symbol_idx in 0..SYMBOLS {
-        next_seq[symbol_idx] += 1;
-        tx.send(MdEvent::Incremental(update(symbol_idx, next_seq[symbol_idx])))
+    for (symbol_idx, seq) in next_seq.iter_mut().enumerate() {
+        *seq += 1;
+        tx.send(MdEvent::Incremental(update(symbol_idx, *seq)))
             .await
             .unwrap();
     }
@@ -50,9 +50,12 @@ async fn burst_profile_smoke() {
         // the rest is spread across the full universe.
         let symbol_idx = if i % 10 == 0 { i % 128 } else { i % SYMBOLS };
         next_seq[symbol_idx] += 1;
-        tx.send(MdEvent::Incremental(update(symbol_idx, next_seq[symbol_idx])))
-            .await
-            .unwrap();
+        tx.send(MdEvent::Incremental(update(
+            symbol_idx,
+            next_seq[symbol_idx],
+        )))
+        .await
+        .unwrap();
     }
     drop(tx);
 
@@ -63,11 +66,17 @@ async fn burst_profile_smoke() {
 
     println!("updates={UPDATES}");
     println!("elapsed_ms={:.3}", elapsed.as_secs_f64() * 1_000.0);
-    println!("throughput_updates_per_sec={:.0}", UPDATES as f64 / elapsed.as_secs_f64());
+    println!(
+        "throughput_updates_per_sec={:.0}",
+        UPDATES as f64 / elapsed.as_secs_f64()
+    );
     println!("stats={stats:?}");
     println!("snapshot_size={snapshot_size}");
 
-    assert_eq!(stats.events_seen as usize, UPDATES, "run must drain all events");
+    assert_eq!(
+        stats.events_seen as usize, UPDATES,
+        "run must drain all events"
+    );
     assert_eq!(stats.gaps, 0, "generated stream is gap-free per symbol");
     assert_eq!(snapshot_size, SYMBOLS, "all symbols should have a quote");
 

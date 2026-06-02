@@ -131,12 +131,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cargo/bin/cargo-audit
-          key: ${{ runner.os }}-cargo-audit-v0.21.2
+          key: ${{ runner.os }}-cargo-audit-v0.22.1
 
       - name: Install cargo-audit
         run: |
           if ! command -v cargo-audit >/dev/null 2>&1; then
-            cargo install cargo-audit --version 0.21.2 --locked
+            cargo install cargo-audit --version 0.22.1 --locked
           fi
 
       - name: Run security audit

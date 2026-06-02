@@ -1,3 +1,6 @@
+// Prices are fixed-point cents in tests, so 100_05 means 100.05.
+#![allow(clippy::inconsistent_digit_grouping)]
+
 use md_hotpath_assignment::{MarketDataService, MdEvent, QuoteUpdate, SymbolHealth};
 
 fn update(symbol: &str, seq: u64, bid_px: i64, ask_px: i64) -> QuoteUpdate {
@@ -81,13 +84,19 @@ async fn gap_is_detected_and_out_of_sequence_incremental_is_not_applied() {
         .await
         .unwrap();
 
-    let quote = service.get_quote("AAPL").await.expect("old quote must remain");
+    let quote = service
+        .get_quote("AAPL")
+        .await
+        .expect("old quote must remain");
     assert_eq!(quote.seq, 1, "gap seq=3 must not silently advance state");
     assert_eq!(quote.bid_px, 100_00);
 
     let status = service.symbol_status("AAPL").await;
     assert_eq!(status.health, SymbolHealth::Stale);
-    assert_eq!(status.last_seq, 1, "last applied seq must remain unchanged after a gap");
+    assert_eq!(
+        status.last_seq, 1,
+        "last applied seq must remain unchanged after a gap"
+    );
     assert_eq!(status.gap_count, 1);
 
     let stats = service.stats().await;
@@ -110,17 +119,26 @@ async fn snapshot_recovers_symbol_after_gap_then_next_incremental_can_apply() {
         .unwrap();
 
     assert_eq!(service.get_quote("AAPL").await.unwrap().seq, 10);
-    assert_eq!(service.symbol_status("AAPL").await.health, SymbolHealth::Stale);
+    assert_eq!(
+        service.symbol_status("AAPL").await.health,
+        SymbolHealth::Stale
+    );
 
     service
         .apply_event(MdEvent::Snapshot(update("AAPL", 12, 102_00, 102_05)))
         .await
         .unwrap();
 
-    let recovered = service.get_quote("AAPL").await.expect("snapshot must recover quote");
+    let recovered = service
+        .get_quote("AAPL")
+        .await
+        .expect("snapshot must recover quote");
     assert_eq!(recovered.seq, 12);
     assert_eq!(recovered.bid_px, 102_00);
-    assert_eq!(service.symbol_status("AAPL").await.health, SymbolHealth::Live);
+    assert_eq!(
+        service.symbol_status("AAPL").await.health,
+        SymbolHealth::Live
+    );
 
     service
         .apply_event(MdEvent::Incremental(update("AAPL", 13, 103_00, 103_05)))
@@ -158,10 +176,16 @@ async fn gap_on_one_symbol_does_not_block_other_symbols() {
         .unwrap();
 
     assert_eq!(service.get_quote("AAPL").await.unwrap().seq, 1);
-    assert_eq!(service.symbol_status("AAPL").await.health, SymbolHealth::Stale);
+    assert_eq!(
+        service.symbol_status("AAPL").await.health,
+        SymbolHealth::Stale
+    );
 
     let msft = service.get_quote("MSFT").await.unwrap();
     assert_eq!(msft.seq, 2);
     assert_eq!(msft.bid_px, 201_00);
-    assert_eq!(service.symbol_status("MSFT").await.health, SymbolHealth::Live);
+    assert_eq!(
+        service.symbol_status("MSFT").await.health,
+        SymbolHealth::Live
+    );
 }

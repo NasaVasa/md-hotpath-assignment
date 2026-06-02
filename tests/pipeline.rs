@@ -1,3 +1,6 @@
+// Prices are fixed-point cents in tests, so 100_05 means 100.05.
+#![allow(clippy::inconsistent_digit_grouping)]
+
 use md_hotpath_assignment::{MarketDataService, MdEvent, QuoteUpdate};
 use tokio::sync::mpsc;
 

@@ -106,19 +106,14 @@ impl MdEvent {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum SymbolHealth {
     /// No event has been applied for this symbol yet.
+    #[default]
     Unknown,
     /// Latest state is usable.
     Live,
     Stale,
-}
-
-impl Default for SymbolHealth {
-    fn default() -> Self {
-        Self::Unknown
-    }
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
