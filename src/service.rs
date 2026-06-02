@@ -17,17 +17,25 @@ use crate::{
 /// free to replace all internals.
 #[derive(Clone)]
 pub struct MarketDataService {
-    quotes: Arc<Mutex<HashMap<Symbol, Quote>>>,
-    status: Arc<Mutex<HashMap<Symbol, SymbolStatus>>>,
-    stats: Arc<Mutex<ServiceStats>>,
+    inner: Arc<Mutex<Inner>>,
+}
+
+#[derive(Default)]
+struct Inner {
+    symbols: HashMap<Symbol, SymbolState>,
+    stats: ServiceStats,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+struct SymbolState {
+    quote: Option<Quote>,
+    status: SymbolStatus,
 }
 
 impl Default for MarketDataService {
     fn default() -> Self {
         Self {
-            quotes: Arc::new(Mutex::new(HashMap::new())),
-            status: Arc::new(Mutex::new(HashMap::new())),
-            stats: Arc::new(Mutex::new(ServiceStats::default())),
+            inner: Arc::new(Mutex::new(Inner::default())),
         }
     }
 }
@@ -40,10 +48,7 @@ impl MarketDataService {
     /// Process a stream of events.
     pub async fn run(&self, mut rx: mpsc::Receiver<MdEvent>) -> Result<(), MdError> {
         while let Some(event) = rx.recv().await {
-            let service = self.clone();
-            tokio::spawn(async move {
-                let _ = service.apply_event(event).await;
-            });
+            self.apply_event(event).await?;
         }
 
         Ok(())
@@ -56,41 +61,39 @@ impl MarketDataService {
             MdEvent::Snapshot(update) => (true, update),
         };
 
-        let now_ns = wall_clock_ns();
-        let mut duplicate = false;
-        let mut applied = false;
+        let mut inner = self.inner.lock().await;
+        inner.stats.events_seen += 1;
+
+        if is_snapshot {
+            inner.stats.snapshots += 1;
+        }
+
+        let transition;
 
         {
-            let mut status = self.status.lock().await;
-            let symbol_status = status.entry(update.symbol.clone()).or_default();
+            let state = inner.symbols.entry(update.symbol.clone()).or_default();
+            transition = classify_event(is_snapshot, update.seq, state);
 
-            if update.seq <= symbol_status.last_seq {
-                symbol_status.duplicate_count += 1;
-                duplicate = true;
-            } else {
-                symbol_status.last_seq = update.seq;
-                symbol_status.health = SymbolHealth::Live;
-                applied = true;
+            match transition {
+                EventTransition::Apply => {
+                    state.quote = Some(quote_from_update(&update, wall_clock_ns()));
+                    state.status.health = SymbolHealth::Live;
+                    state.status.last_seq = update.seq;
+                }
+                EventTransition::Duplicate => {
+                    state.status.duplicate_count += 1;
+                }
+                EventTransition::Gap => {
+                    state.status.health = SymbolHealth::Stale;
+                    state.status.gap_count += 1;
+                }
             }
         }
 
-        if applied {
-            let mut quotes = self.quotes.lock().await;
-            quotes.insert(update.symbol.clone(), quote_from_update(&update, now_ns));
-        }
-
-        {
-            let mut stats = self.stats.lock().await;
-            stats.events_seen += 1;
-            if is_snapshot {
-                stats.snapshots += 1;
-            }
-            if duplicate {
-                stats.duplicates += 1;
-            }
-            if applied {
-                stats.applied += 1;
-            }
+        match transition {
+            EventTransition::Apply => inner.stats.applied += 1,
+            EventTransition::Duplicate => inner.stats.duplicates += 1,
+            EventTransition::Gap => inner.stats.gaps += 1,
         }
 
         Ok(())
@@ -98,24 +101,56 @@ impl MarketDataService {
 
     pub async fn get_quote(&self, symbol: impl Into<Symbol>) -> Option<Quote> {
         let symbol = symbol.into();
-        let quotes = self.quotes.lock().await;
-        quotes.get(&symbol).copied()
+        let inner = self.inner.lock().await;
+        inner.symbols.get(&symbol).and_then(|state| state.quote)
     }
 
     pub async fn symbol_status(&self, symbol: impl Into<Symbol>) -> SymbolStatus {
         let symbol = symbol.into();
-        let status = self.status.lock().await;
-        status.get(&symbol).copied().unwrap_or_default()
+        let inner = self.inner.lock().await;
+        inner
+            .symbols
+            .get(&symbol)
+            .map(|state| state.status)
+            .unwrap_or_default()
     }
 
     /// Return a full snapshot.
     pub async fn snapshot(&self) -> HashMap<Symbol, Quote> {
-        let quotes = self.quotes.lock().await;
-        quotes.clone()
+        let inner = self.inner.lock().await;
+        inner
+            .symbols
+            .iter()
+            .filter_map(|(symbol, state)| state.quote.map(|quote| (symbol.clone(), quote)))
+            .collect()
     }
 
     pub async fn stats(&self) -> ServiceStats {
-        *self.stats.lock().await
+        self.inner.lock().await.stats
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum EventTransition {
+    Apply,
+    Duplicate,
+    Gap,
+}
+
+fn classify_event(is_snapshot: bool, seq: u64, state: &SymbolState) -> EventTransition {
+    if is_snapshot || state.quote.is_none() {
+        return EventTransition::Apply;
+    }
+
+    let last_seq = state.status.last_seq;
+    if seq <= last_seq {
+        return EventTransition::Duplicate;
+    }
+
+    if last_seq.checked_add(1) == Some(seq) {
+        EventTransition::Apply
+    } else {
+        EventTransition::Gap
     }
 }
 
