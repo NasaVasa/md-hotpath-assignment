@@ -1,43 +1,76 @@
-# Rust Market Data Hot Path Assignment
+# md-hotpath-assignment
 
-Это тестовое задание для Rust-разработчика на low-latency / HFT-oriented позицию.
+Это мое решение задачи.
 
-В репозитории есть реализация market-data сервиса. Она написана в стиле обычного async backend: Tokio, `mpsc`, `Arc<Mutex<HashMap<...>>>`, `tokio::spawn` на каждое событие, строковые ключи и полный clone snapshot под lock. На умеренной нагрузке такой код может казаться рабочим. Но в нем есть скрытые проблемы.
+Не менял публичный API библиотеки, потому что на него завязаны тесты. Основная работа была внутри сервиса.
 
-Ваша задача — улучшить архитектуру и реализацию, сохранив публичный контракт, который используют тесты.
+## Что изменил
 
-## Что нужно сделать
+Главная правка в `src/service.rs`.
 
-0. Сделать так, чтобы проходили все публичные тесты:
+В исходной версии состояние было разнесено по трем разным lock-ам: quotes, status и stats. Плюс `run()` делал `tokio::spawn` на каждое событие. Для обычногобекнда это ок, но для market data так делать нельзя.
 
-```bash
-cargo test
-```
-
-1. Найти проблемные участки кода и исправить их.
-
-2. Подготовить `AGENT_LOG.md`: см. `AGENT_USAGE.md`.
-
-## Бизнес-контракт
-
-## Технические требования
-
-Сохраните публичные методы, используемые тестами:
+Я заменил это на единое внутреннее состояние:
 
 ```rust
-MarketDataService::new()
-MarketDataService::apply_event(...)
-MarketDataService::run(...)
-MarketDataService::get_quote(...)
-MarketDataService::symbol_status(...)
-MarketDataService::snapshot(...)
-MarketDataService::stats(...)
+struct Inner {
+    symbols: HashMap<Symbol, SymbolState>,
+    stats: ServiceStats,
+}
 ```
 
-Интерналы можно менять полностью.
+Теперь по символу хранится и quote, и status. Событие классифицируется явно:
 
-## Unsafe
+- snapshot применяется всегда и служит recovery point;
+- первый incremental может создать состояние;
+- `seq == last_seq + 1` применяется;
+- `seq <= last_seq` считается duplicate/stale;
+- `seq > last_seq + 1` считается gap, символ становится `Stale`, старый quote не затирается.
 
-`unsafe` не запрещён, но не нужен для хорошего решения этого задания.
+`run()` теперь просто читает канал по порядку и применяет события одно за другим. Это проще и честнее для такой задачи.
 
-Непояснённый `unsafe` будет считаться сильным минусом.
+`unsafe` не использовал. Для текущего контракта он тут не нужен.
+
+## CI/CD
+
+Лежит в `.github/workflows/ci.yml`.
+
+В нем отдельные jobs:
+
+- format: `cargo fmt --all -- --check`
+- clippy: `cargo clippy --locked --all-targets --all-features -- -D warnings`
+- tests: `cargo test --locked --all-targets`
+- build: `cargo build --locked --all-targets`
+- security audit: `cargo audit`
+- aggregate `CI Success`, чтобы удобно видеть общий статус
+
+## AI / MCP
+
+Что было подключено:
+- OpenAI Codex
+- Context7 для актуальной документации
+- GitHub MCP для просмотра логов джоб
+- superpowers для более дисциплинированного флоу: brainstorming, debugging, TDD-style checks, verification-before-completion.
+
+Примеры обращений к агенту вынесены в `AGENT_LOG.md`.
+
+## Codex setup
+
+В репозитории также есть локальная настройка Codex:
+
+- `AGENTS.md` с правилами для агента;
+- `.codex/hooks.json`;
+- `.codex/hooks/post_edit_quality.sh`;
+- `.codex/hooks/stop_verification.sh`.
+
+Хуки гоняют быстрые проверки после правок и полный тест гейт в конце работы. Если раст файлы не менялись, они просто пропускают запуск.
+
+## Как проверить локально
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked --all-targets
+cargo audit
+```
