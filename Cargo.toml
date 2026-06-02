@@ -1,0 +1,23 @@
+[package]
+name = "md-hotpath-assignment"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.76"
+publish = false
+
+[lib]
+name = "md_hotpath_assignment"
+path = "src/lib.rs"
+
+[dependencies]
+tokio = { version = "1.37", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
+
+[dev-dependencies]
+# Keep public tests lightweight and deterministic. No Criterion is required for the assignment.
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+await_holding_lock = "deny"
+needless_pass_by_value = "allow"
