@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "^(apply_patch|functions\\.apply_patch|Edit|Write)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc 'root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && exec \"$root/.codex/hooks/post_edit_quality.sh\"'",
+            "timeout": 300,
+            "statusMessage": "Running Rust fast checks"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -lc 'root=\"$(git rev-parse --show-toplevel 2>/dev/null)\" && exec \"$root/.codex/hooks/stop_verification.sh\"'",
+            "timeout": 900,
+            "statusMessage": "Running Rust verification"
+          }
+        ]
+      }
+    ]
+  }
+}
